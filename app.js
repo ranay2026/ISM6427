@@ -1,102 +1,103 @@
 const DEFAULT = { name: "Delray Beach", lat: 26.4615, lon: -80.0728 };
-
-const CODES = {
-  0: ["Clear", "☀️", "🌙"],
-  1: ["Mostly Clear", "🌤️", "🌙"],
-  2: ["Partly Cloudy", "⛅", "☁️"],
-  3: ["Cloudy", "☁️", "☁️"],
-  45: ["Fog", "🌫️", "🌫️"], 48: ["Fog", "🌫️", "🌫️"],
-  51: ["Drizzle", "🌦️", "🌧️"], 53: ["Drizzle", "🌦️", "🌧️"], 55: ["Drizzle", "🌦️", "🌧️"],
-  56: ["Freezing Drizzle", "🌧️", "🌧️"], 57: ["Freezing Drizzle", "🌧️", "🌧️"],
-  61: ["Light Rain", "🌧️", "🌧️"], 63: ["Rain", "🌧️", "🌧️"], 65: ["Heavy Rain", "🌧️", "🌧️"],
-  66: ["Freezing Rain", "🌧️", "🌧️"], 67: ["Freezing Rain", "🌧️", "🌧️"],
-  71: ["Light Snow", "🌨️", "🌨️"], 73: ["Snow", "🌨️", "🌨️"], 75: ["Heavy Snow", "❄️", "❄️"],
-  77: ["Snow Grains", "🌨️", "🌨️"],
-  80: ["Showers", "🌦️", "🌧️"], 81: ["Showers", "🌦️", "🌧️"], 82: ["Heavy Showers", "⛈️", "⛈️"],
-  85: ["Snow Showers", "🌨️", "🌨️"], 86: ["Snow Showers", "🌨️", "🌨️"],
-  95: ["Thunderstorm", "⛈️", "⛈️"], 96: ["Thunderstorm", "⛈️", "⛈️"], 99: ["Thunderstorm", "⛈️", "⛈️"],
-};
-
-const describe = (code, isDay = 1) => {
-  const [label, day, night] = CODES[code] || ["—", "🌡️", "🌡️"];
-  return { label, icon: isDay ? day : night };
-};
-
 const NAME = "Raquel";
 
 const greet = (hour) =>
   hour < 5 ? "Good evening" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+// Pick an emoji from the NWS short forecast text
+function icon(text, isDay = true) {
+  const t = text.toLowerCase();
+  if (t.includes("thunder")) return "⛈️";
+  if (t.includes("snow") || t.includes("sleet") || t.includes("flurr")) return "🌨️";
+  if (t.includes("drizzle")) return "🌦️";
+  if (t.includes("rain") || t.includes("shower")) return "🌧️";
+  if (t.includes("fog") || t.includes("haze") || t.includes("smoke")) return "🌫️";
+  if (t.includes("partly") || t.includes("mostly sunny") || t.includes("mostly clear")) return isDay ? "⛅" : "☁️";
+  if (t.includes("cloud") || t.includes("overcast")) return "☁️";
+  return isDay ? "☀️" : "🌙";
+}
+
 const $ = (id) => document.getElementById(id);
-const round = (n) => Math.round(n);
+const toF = (c) => Math.round((c * 9) / 5 + 32);
+// NWS times carry the location's UTC offset, so the hour in the string is local
+const localHour = (iso) => Number(iso.slice(11, 13));
+const hourLabel = (h) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+
+async function getJSON(url) {
+  const res = await fetch(url, { headers: { Accept: "application/geo+json" } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
 
 async function loadWeather({ name, lat, lon }) {
   $("place").textContent = name;
   $("condition").textContent = "Loading…";
 
-  const params = new URLSearchParams({
-    latitude: lat,
-    longitude: lon,
-    current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
-    hourly: "temperature_2m,weather_code,is_day",
-    daily: "weather_code,temperature_2m_max,temperature_2m_min,uv_index_max",
-    temperature_unit: "fahrenheit",
-    wind_speed_unit: "mph",
-    timezone: "auto",
-    forecast_days: 7,
-  });
-
   try {
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
-    if (!res.ok) throw new Error(res.statusText);
-    render(await res.json());
+    const point = await getJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
+    const [daily, hourly] = await Promise.all([
+      getJSON(point.properties.forecast),
+      getJSON(point.properties.forecastHourly),
+    ]);
+    render(daily.properties.periods, hourly.properties.periods);
   } catch (err) {
-    $("condition").textContent = "Couldn't load weather.";
+    $("condition").textContent = "Couldn't load weather. NWS covers US locations only.";
     console.error(err);
   }
 }
 
-function render({ current, hourly, daily }) {
-  const now = describe(current.weather_code, current.is_day);
-  document.body.classList.toggle("night", !current.is_day);
+function render(periods, hours) {
+  const now = hours[0];
+  document.body.classList.toggle("night", !now.isDaytime);
 
-  // Greeting uses the searched location's local time
-  $("greeting").textContent = `${greet(Number(current.time.slice(11, 13)))}, ${NAME}`;
+  const high = periods.find((p) => p.isDaytime);
+  const low = periods.find((p) => !p.isDaytime);
 
-  $("temp").textContent = `${round(current.temperature_2m)}°`;
-  $("condition").textContent = now.label;
-  $("hilo").textContent = `H:${round(daily.temperature_2m_max[0])}°  L:${round(daily.temperature_2m_min[0])}°`;
-  $("feels").textContent = `${round(current.apparent_temperature)}°`;
-  $("humidity").textContent = `${current.relative_humidity_2m}%`;
-  $("wind").textContent = `${round(current.wind_speed_10m)} mph`;
-  $("uv").textContent = round(daily.uv_index_max[0]);
+  $("greeting").textContent = `${greet(localHour(now.startTime))}, ${NAME}`;
+  $("temp").textContent = `${now.temperature}°`;
+  $("condition").textContent = now.shortForecast;
+  $("hilo").textContent = `H:${high.temperature}°  L:${low.temperature}°`;
+  $("humidity").textContent = `${now.relativeHumidity.value}%`;
+  $("wind").textContent = `${now.windSpeed} ${now.windDirection}`;
+  $("rain").textContent = `${now.probabilityOfPrecipitation.value ?? 0}%`;
+  $("dewpoint").textContent = `${toF(now.dewpoint.value)}°`;
 
-  // Next 24 hours, starting from the current hour
-  const start = Math.max(0, hourly.time.findIndex((t) => t >= current.time.slice(0, 13)));
-  $("hourly").innerHTML = hourly.time.slice(start, start + 24).map((t, i) => {
-    const j = start + i;
-    const { icon } = describe(hourly.weather_code[j], hourly.is_day[j]);
-    const hour = i === 0 ? "Now" : new Date(t).toLocaleTimeString([], { hour: "numeric" });
-    return `<div class="hour"><span>${hour}</span><span class="icon">${icon}</span><span>${round(hourly.temperature_2m[j])}°</span></div>`;
+  $("hourly").innerHTML = hours.slice(0, 24).map((h, i) => {
+    const label = i === 0 ? "Now" : hourLabel(localHour(h.startTime));
+    return `<div class="hour"><span>${label}</span><span class="icon">${icon(h.shortForecast, h.isDaytime)}</span><span>${h.temperature}°</span></div>`;
   }).join("");
 
-  $("daily").innerHTML = daily.time.map((d, i) => {
-    const { icon } = describe(daily.weather_code[i]);
-    const day = i === 0 ? "Today" : new Date(`${d}T12:00`).toLocaleDateString([], { weekday: "short" });
-    return `<li><span>${day}</span><span class="icon">${icon}</span>
-      <span class="range"><span class="lo">${round(daily.temperature_2m_min[i])}°</span>${round(daily.temperature_2m_max[i])}°</span></li>`;
+  // NWS returns separate day and night periods; merge them into one row per date
+  const days = [];
+  for (const p of periods) {
+    const date = p.startTime.slice(0, 10);
+    let day = days.find((d) => d.date === date);
+    if (!day) days.push((day = { date }));
+    if (p.isDaytime) Object.assign(day, { hi: p.temperature, icon: icon(p.shortForecast) });
+    else Object.assign(day, { lo: p.temperature, icon: day.icon || icon(p.shortForecast, false) });
+  }
+
+  $("daily").innerHTML = days.slice(0, 7).map((d, i) => {
+    // Late in the day NWS only has tonight left for the first date
+    const label = i > 0 ? new Date(`${d.date}T12:00`).toLocaleDateString([], { weekday: "short" })
+      : d.hi == null ? "Tonight" : "Today";
+    const range = d.hi == null ? `${d.lo}°`
+      : `<span class="lo">${d.lo ?? "--"}°</span>${d.hi}°`;
+    return `<li><span>${label}</span><span class="icon">${d.icon}</span><span class="range">${range}</span></li>`;
   }).join("");
 }
 
+// NWS has no city search, so Open-Meteo's geocoder turns a name into coordinates (US only)
 $("search").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("query").value.trim();
   if (!q) return;
   try {
-    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1`);
-    const { results } = await res.json();
+    const { results } = await getJSON(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&countryCode=US`
+    );
     if (!results?.length) {
-      $("condition").textContent = `No results for "${q}"`;
+      $("condition").textContent = `No US results for "${q}"`;
       return;
     }
     const r = results[0];
