@@ -22,6 +22,11 @@ const describe = (code, isDay = 1) => {
   return { label, icon: isDay ? day : night };
 };
 
+const NAME = "Raquel";
+
+const greet = (hour) =>
+  hour < 5 ? "Good evening" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
 const $ = (id) => document.getElementById(id);
 const round = (n) => Math.round(n);
 
@@ -54,6 +59,9 @@ async function loadWeather({ name, lat, lon }) {
 function render({ current, hourly, daily }) {
   const now = describe(current.weather_code, current.is_day);
   document.body.classList.toggle("night", !current.is_day);
+
+  // Greeting uses the searched location's local time
+  $("greeting").textContent = `${greet(Number(current.time.slice(11, 13)))}, ${NAME}`;
 
   $("temp").textContent = `${round(current.temperature_2m)}°`;
   $("condition").textContent = now.label;
@@ -100,4 +108,17 @@ $("search").addEventListener("submit", async (e) => {
   }
 });
 
+function setTheme(value) {
+  document.documentElement.dataset.theme = value;
+  document.querySelectorAll("#theme button").forEach((b) => {
+    b.setAttribute("aria-checked", b.dataset.value === value);
+  });
+  try { localStorage.setItem("theme", value); } catch (e) {}
+}
+
+$("theme").addEventListener("click", (e) => {
+  if (e.target.dataset.value) setTheme(e.target.dataset.value);
+});
+
+setTheme(document.documentElement.dataset.theme || "system");
 loadWeather(DEFAULT);

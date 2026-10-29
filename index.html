@@ -4,17 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weather</title>
+  <script>
+    // Apply saved theme before first paint to avoid a flash
+    try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "system"; } catch (e) {}
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="bg"></div>
   <main class="app">
+    <div class="glass theme" id="theme" role="radiogroup" aria-label="Theme">
+      <button type="button" data-value="light" role="radio">Light</button>
+      <button type="button" data-value="dark" role="radio">Dark</button>
+      <button type="button" data-value="system" role="radio">System</button>
+    </div>
+
     <form id="search" class="glass search" autocomplete="off">
       <input id="query" type="text" placeholder="Search city…" aria-label="Search city">
       <button type="submit" aria-label="Search">⌕</button>
     </form>
 
     <section class="glass current">
+      <p id="greeting" class="greeting">Hello, Raquel</p>
       <h1 id="place">Delray Beach</h1>
       <div id="temp" class="temp">--°</div>
       <div id="condition" class="condition">Loading…</div>
